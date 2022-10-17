@@ -39,10 +39,10 @@ jobs:
 
       # your code must be built into builds/ssp binary
       - name: Build SSP binary
-        run: echo Ain\'t no ssp yet
+        run: curl -o builds/ssp https://github.com/Tvv95/test-server-ssp-testbed/blob/main/builds/ssp
 
-      #- name: Making it executable
-      #  run: chmod +x builds/ssp
+      - name: Making it executable
+        run: chmod +x builds/ssp
 
       # run a battery of tests
       - name: happy path
