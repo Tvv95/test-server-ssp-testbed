@@ -60,9 +60,6 @@ func (s *server) handlePlacementsRequest() http.HandlerFunc {
 			s.errorRespond(w, http.StatusBadRequest)
 			return
 		}
-		for _, tile := range placementRequest.Tiles {
-			fmt.Printf("TILE_ID = %d\n", *tile.Id)
-		}
 
 		advertisingRequest := buildRequestToAdServices(placementRequest)
 
@@ -139,7 +136,7 @@ func postAdRequest(url string, ch chan<- dto.AdvertisingResponse, body *dto.Adve
 		return
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 		return
 	}
 	jsonData, _ := io.ReadAll(resp.Body)
@@ -148,7 +145,6 @@ func postAdRequest(url string, ch chan<- dto.AdvertisingResponse, body *dto.Adve
 	if unmarshalErr != nil {
 		return
 	}
-	fmt.Println(data)
 	ch <- data
 }
 
