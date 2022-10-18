@@ -33,8 +33,13 @@ func NewServer(port int, adsIpPort []string) *server {
 }
 
 func (s *server) Start() error {
+	srv := &http.Server{
+		Addr:         s.port,
+		Handler:      s.router,
+		WriteTimeout: 250 * time.Millisecond,
+	}
 	log.Println("Server started")
-	return http.ListenAndServe(s.port, s.router)
+	return srv.ListenAndServe()
 }
 
 func (s *server) configureRouter() {
@@ -46,13 +51,17 @@ func (s *server) handlePlacementsRequest() http.HandlerFunc {
 		data, _ := io.ReadAll(r.Body)
 		placementRequest := &dto.PlacementRequest{}
 		if err := json.Unmarshal(data, placementRequest); err != nil {
-			log.Println(err)
+			log.Println(WrongSchema)
+			s.errorRespond(w, http.StatusBadRequest)
 			return
 		}
 		if err := validateRequest(placementRequest); err != nil {
 			log.Println(err)
 			s.errorRespond(w, http.StatusBadRequest)
 			return
+		}
+		for _, tile := range placementRequest.Tiles {
+			fmt.Printf("TILE_ID = %d\n", *tile.Id)
 		}
 
 		advertisingRequest := buildRequestToAdServices(placementRequest)
@@ -70,7 +79,7 @@ func (s *server) handlePlacementsRequest() http.HandlerFunc {
 			return
 		}
 
-		placementResponse := buildResponse(allImps, *placementRequest.Id)
+		placementResponse := buildResponse(allImps, placementRequest)
 
 		s.respond(w, http.StatusCreated, placementResponse)
 	}
@@ -108,45 +117,63 @@ func (s *server) postToAdServices(ch chan dto.AdvertisingResponse, advertisingRe
 }
 
 func postAdRequest(url string, ch chan<- dto.AdvertisingResponse, body *dto.AdvertisingRequest) {
-	jsonBody, _ := json.Marshal(body)
-	req, _ := http.NewRequest("POST", url, bytes.NewBuffer(jsonBody))
+	defer wg.Done()
+	jsonBody, err := json.Marshal(body)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonBody))
+	if err != nil {
+		log.Println(err)
+		return
+	}
+	req.Close = true
 	req.Header.Add("Content-Type", "application/json")
 	client := &http.Client{
 		Timeout: time.Millisecond * 200,
 	}
-	resp, _ := client.Do(req)
-	defer wg.Done()
-	defer resp.Body.Close()
-	jsonData, _ := io.ReadAll(resp.Body)
-	data := dto.AdvertisingResponse{}
-	err := json.Unmarshal(jsonData, &data)
+	resp, err := client.Do(req)
 	if err != nil {
 		log.Println(err)
+		return
 	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return
+	}
+	jsonData, _ := io.ReadAll(resp.Body)
+	data := dto.AdvertisingResponse{}
+	unmarshalErr := json.Unmarshal(jsonData, &data)
+	if unmarshalErr != nil {
+		return
+	}
+	fmt.Println(data)
 	ch <- data
 }
 
-func buildResponse(allImps []dto.AdResponseImp, placementRequestId string) *dto.PlacementResponse {
+func buildResponse(allImps []dto.AdResponseImp, placementRequest *dto.PlacementRequest) *dto.PlacementResponse {
 	impIdToImp := make(map[uint]dto.AdResponseImp, len(allImps))
 
 	for _, v := range allImps {
-		val, ok := impIdToImp[v.Id]
-		if !ok || ok && val.Price < v.Price {
+		if cur, ok := impIdToImp[v.Id]; !ok || ok && cur.Price < v.Price {
 			impIdToImp[v.Id] = v
 		}
 	}
 	placementImps := make([]dto.PlacementImp, 0, len(impIdToImp))
-	for _, v := range impIdToImp {
-		placementImps = append(placementImps, dto.PlacementImp{
-			Id:     v.Id,
-			Width:  v.Width,
-			Height: v.Height,
-			Title:  v.Title,
-			Url:    v.Url,
-		})
+	for _, v := range placementRequest.Tiles {
+		if _, ok := impIdToImp[*v.Id]; ok {
+			placementImps = append(placementImps, dto.PlacementImp{
+				Id:     impIdToImp[*v.Id].Id,
+				Width:  impIdToImp[*v.Id].Width,
+				Height: impIdToImp[*v.Id].Height,
+				Title:  impIdToImp[*v.Id].Title,
+				Url:    impIdToImp[*v.Id].Url,
+			})
+		}
 	}
 	return &dto.PlacementResponse{
-		Id:  placementRequestId,
+		Id:  *placementRequest.Id,
 		Imp: placementImps,
 	}
 }
