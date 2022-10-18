@@ -49,7 +49,7 @@ jobs:
       - name: Build SSP binary
         run: go build -o builds/ssp cmd/app/main.go
 
-      #- name: Making it executable
+      - name: Making it executable
          run: chmod +x builds/ssp
 
       # run a battery of tests
